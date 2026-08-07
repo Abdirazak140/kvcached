@@ -18,6 +18,7 @@ struct Command{
     Opcodes opcode;
     std::string key;
     std::string value;
+    int socket;
 };
 
 const std::unordered_map<std::string, Opcodes> opcode_mapper {
@@ -174,10 +175,12 @@ void worker_handler(){
 
         mtx.lock();
         if (!tasks.empty()){
-            const Command task = *tasks.end();
-            tasks.erase(tasks.end());
-
+            const Command task = tasks.back();
+            tasks.erase(--tasks.end());
+            
             mtx.unlock();
+            std::cout << "Thread " << std::this_thread::get_id() << " executing the command: ";
+            std::cout << static_cast<int>(task.opcode) << " " << task.key << " " << task.value << "\n";
 
             switch (task.opcode)
             {
@@ -195,23 +198,42 @@ void worker_handler(){
             }
             
         }
+        else{
+            mtx.unlock();
+        }
     }
 }
 
 
 void kv_set(std::string key, std::string value){
-    std::cout << "Set: " << key << " " << value << "\n";
-    kv_store.insert({key, value});
+    auto it = kv_store.find(key);
+
+    if (it == kv_store.end()){
+        kv_store.insert({key, value});
+    }
+    else{
+
+    }
 }
 
 std::string kv_get(std::string key){
-    std::cout << "Get: " << key << "\n";
     auto it = kv_store.find(key);
-    return it->second;
+
+    if (it == kv_store.end()){
+        std::cout << "Retrieved value: " << it->second << "\n";
+    }
+    else{
+
+    }
 }
 
 void kv_delete(std::string key){
-    std::cout << "Delete: " << key << "\n";
     auto it = kv_store.find(key);
-    kv_store.erase(it);
+
+    if (it == kv_store.end()){
+        kv_store.erase(it);
+    }
+    else{
+
+    }
 }
