@@ -100,7 +100,7 @@ bool parse_and_validate_query(std::string query, Command *command){
 
     command->opcode = it->second;
 
-    std::string_view query = trim(query.substr(opcode_pos + 1));
+    query = trim(query.substr(opcode_pos + 1));
 
     if (query.length() == 0){
         std::cout << "Key not provided" << "\n";
@@ -118,7 +118,7 @@ bool parse_and_validate_query(std::string query, Command *command){
     }
 
     
-    std::string_view query = trim(query.substr(key_pos + 1));
+    query = trim(query.substr(key_pos + 1));
 
     if (query.length() == 0){
         if (command->opcode == Opcodes::SET){
@@ -200,15 +200,18 @@ void worker_handler(){
 
 
 void kv_set(std::string key, std::string value){
-    kv_store.insert(key, value);
+    std::cout << "Set: " << key << " " << value << "\n";
+    kv_store.insert({key, value});
 }
 
 std::string kv_get(std::string key){
+    std::cout << "Get: " << key << "\n";
     auto it = kv_store.find(key);
     return it->second;
 }
 
 void kv_delete(std::string key){
+    std::cout << "Delete: " << key << "\n";
     auto it = kv_store.find(key);
     kv_store.erase(it);
 }
