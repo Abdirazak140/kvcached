@@ -9,6 +9,8 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <signal.h>
+#include <poll.h>
 
 
 enum class Opcodes{
@@ -42,12 +44,19 @@ std::mutex mtx;
 std::string listen();
 bool parse_and_validate_query(std::string query, Command *command);
 std::string_view trim(std::string_view str);
+addrinfo *initialize_address_info(int ai_family=AF_INET);
 
 // Worker operations forward declerations
 void worker_handler();
-void kv_set(std::string key, std::string value);
+
+std::string kv_set(std::string key, std::string value);
 std::string kv_get(std::string key);
-void kv_delete(std::string key);
+std::string kv_delete(std::string key);
+
+
+void signal_handler(int){
+    running = false;
+}
 
 
 int main(){
@@ -76,31 +85,45 @@ int main(){
         workers.push_back(std::move(t));
     }
 
+    signal(SIGINT, signal_handler);
+    pollfd listener {};
+    listener.fd = main_sock;
+    listener.events = POLLIN;
+
     while (running){
-        sockaddr_storage client_address {};
-        socklen_t client_address_len = sizeof(client_address);
-        Command command {};
-        command.socket = accept(main_sock, reinterpret_cast<sockaddr *>(&client_address), &client_address_len);
+        int poll_res = poll(&listener, 1, 0);
 
-        if (command.socket == -1){
-            std::perror("Failed to accept connection with client");
-            continue;
+        if (poll_res == -1 || listener.revents == -1){
+            running = false;
+            std::perror("Pollin error");
+            break;
         }
-        
-        std::string query {};
+        else if (listener.revents == POLLIN){
+            sockaddr_storage client_address {};
+            socklen_t client_address_len = sizeof(client_address);
+            Command command {};
+            command.socket = accept(main_sock, reinterpret_cast<sockaddr *>(&client_address), &client_address_len);
 
-        if (recv(command.socket, query.data(), sizeof(query), 0) == -1){
-            std::perror("Failed to receive data from client");
-            continue;
+            if (command.socket == -1){
+                std::perror("Failed to accept connection with client");
+                continue;
+            }
+
+            char buffer[1024] {};
+
+            if (recv(command.socket, buffer, sizeof(buffer), 0) == -1){
+                std::perror("Failed to receive data from client");
+                continue;
+            }
+
+            bool is_valid = parse_and_validate_query(buffer, &command);
+
+            if (!is_valid){
+                continue;
+            }
+
+            tasks.push_back(command);
         }
-
-        bool is_valid = parse_and_validate_query(query, &command);
-
-        if (!is_valid){
-            continue;
-        }
-
-        tasks.push_back(command);
     }
 
 
@@ -108,12 +131,16 @@ int main(){
         worker.join();
     }
 
+    for (auto& t : tasks){
+        close(t.socket);
+    }
+
     close(main_sock);
     freeaddrinfo(address_info);
 }
 
 
-addrinfo *initialize_address_info(int ai_family=AF_INET){
+addrinfo *initialize_address_info(int ai_family){
     addrinfo base, *res {};
 
     base.ai_family = ai_family;
@@ -159,6 +186,7 @@ bool parse_and_validate_query(std::string query, Command *command){
         command->key = query.substr(0, key_pos);
     }
 
+    std::cout << command->key.size();
     
     query = trim(query.substr(key_pos + 1));
 
@@ -223,22 +251,34 @@ void worker_handler(){
             std::cout << "Thread " << std::this_thread::get_id() << " executing the command: ";
             std::cout << static_cast<int>(task.opcode) << " " << task.key << " " << task.value << "\n";
 
+            std::string result {};
+
             switch (task.opcode)
             {
-            case Opcodes::SET:
-                kv_set(task.key, task.value);
-                break;
-            
-            case Opcodes::GET:
-                kv_get(task.key);
-                break;
+                case Opcodes::SET:
+                    result = kv_set(task.key, task.value);
+                    break;
+                
+                case Opcodes::GET:
+                    result = kv_get(task.key);
+                    break;
 
-            case Opcodes::DELETE:
-                kv_delete(task.key);
-                break;
+                case Opcodes::DELETE:
+                    result = kv_delete(task.key);
+                    break;
             }
-            
-        }
+
+            auto bytes_sent = send(task.socket, result.data(), result.size(), 0);
+
+            if (bytes_sent == -1){
+                std::perror("Failed to send result");
+            }
+            else{
+                std::cout << "Sent " << bytes_sent << " bytes" << "\n";
+            }
+
+            close(task.socket);
+        }   
         else{
             mtx.unlock();
         }
@@ -246,14 +286,14 @@ void worker_handler(){
 }
 
 
-void kv_set(std::string key, std::string value){
-    auto it = kv_store.find(key);
-
-    if (it != kv_store.end()){
-        kv_store.insert({key, value});
+std::string kv_set(std::string key, std::string value){
+    auto [it, inserted] = kv_store.insert_or_assign(key, value);
+    
+    if (inserted){
+        return "Success";
     }
     else{
-
+        "Failed";
     }
 }
 
@@ -262,19 +302,22 @@ std::string kv_get(std::string key){
 
     if (it != kv_store.end()){
         std::cout << "Retrieved value: " << it->second << "\n";
+        return it->second;
     }
     else{
-
+        return "Failed to get";
     }
 }
 
-void kv_delete(std::string key){
+std::string kv_delete(std::string key){
     auto it = kv_store.find(key);
 
     if (it != kv_store.end()){
         kv_store.erase(it);
+        return "Success";
     }
     else{
-
+        return "Failed to delete";
     }
 }
+
