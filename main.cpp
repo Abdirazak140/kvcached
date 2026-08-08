@@ -6,6 +6,9 @@
 #include <atomic>
 #include <mutex>
 #include <chrono>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 
 enum class Opcodes{
@@ -48,7 +51,23 @@ void kv_delete(std::string key);
 
 
 int main(){
+    const int listen_queue_size = 10;
     const unsigned int cores = std::thread::hardware_concurrency();
+    auto address_info = initialize_address_info();
+    
+    int main_sock = socket(address_info->ai_family, address_info->ai_socktype, address_info->ai_protocol);
+
+    if (main_sock == -1){
+        std:perror("Failed to initialize main socket.");
+    }
+
+    if (bind(main_sock, address_info->ai_addr, address_info->ai_addrlen) == -1){
+        std::perror("Failed to bind socket.");
+    }
+
+    if (listen(main_sock, listen_queue_size) == -1){
+        std::perror("Failed to listen at socket.");
+    }
 
     std::vector<std::thread> workers {};
 
@@ -58,8 +77,22 @@ int main(){
     }
 
     while (running){
-        std::string query = listen();
+        sockaddr_storage client_address {};
+        socklen_t client_address_len = sizeof(client_address);
         Command command {};
+        command.socket = accept(main_sock, reinterpret_cast<sockaddr *>(&client_address), &client_address_len);
+
+        if (command.socket == -1){
+            std::perror("Failed to accept connection with client");
+            continue;
+        }
+        
+        std::string query {};
+
+        if (recv(command.socket, query.data(), sizeof(query), 0) == -1){
+            std::perror("Failed to receive data from client");
+            continue;
+        }
 
         bool is_valid = parse_and_validate_query(query, &command);
 
@@ -75,14 +108,22 @@ int main(){
         worker.join();
     }
 
+    close(main_sock);
+    freeaddrinfo(address_info);
 }
 
 
-std::string listen(){
-    std::string buffer {};
-    std::getline(std::cin, buffer);
+addrinfo *initialize_address_info(int ai_family=AF_INET){
+    addrinfo base, *res {};
 
-    return buffer;
+    base.ai_family = ai_family;
+    base.ai_socktype = SOCK_STREAM;
+    base.ai_flags = AI_PASSIVE;
+    base.ai_protocol = 0;
+
+    getaddrinfo(NULL, "5050", &base, &res);
+
+    return res;
 }
 
 
@@ -208,7 +249,7 @@ void worker_handler(){
 void kv_set(std::string key, std::string value){
     auto it = kv_store.find(key);
 
-    if (it == kv_store.end()){
+    if (it != kv_store.end()){
         kv_store.insert({key, value});
     }
     else{
@@ -219,7 +260,7 @@ void kv_set(std::string key, std::string value){
 std::string kv_get(std::string key){
     auto it = kv_store.find(key);
 
-    if (it == kv_store.end()){
+    if (it != kv_store.end()){
         std::cout << "Retrieved value: " << it->second << "\n";
     }
     else{
@@ -230,7 +271,7 @@ std::string kv_get(std::string key){
 void kv_delete(std::string key){
     auto it = kv_store.find(key);
 
-    if (it == kv_store.end()){
+    if (it != kv_store.end()){
         kv_store.erase(it);
     }
     else{
