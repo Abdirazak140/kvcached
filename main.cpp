@@ -169,7 +169,7 @@ bool parse_and_validate_query(std::string query, Command *command){
 
     command->opcode = it->second;
 
-    query = trim(query.substr(opcode_pos + 1));
+    query = trim(query.substr(opcode_pos + 1, query.length() - (opcode_pos + 1)));
 
     if (query.length() == 0){
         std::cout << "Key not provided" << "\n";
@@ -179,16 +179,12 @@ bool parse_and_validate_query(std::string query, Command *command){
     auto key_pos = query.find_first_of(" ");
 
     if (key_pos == std::string::npos){
-        command->key = query;
+        command->key = query.substr(0, query.length() - 1);
         return true;
     }
-    else{
-        command->key = query.substr(0, key_pos);
-    }
 
-    std::cout << command->key.size();
-    
-    query = trim(query.substr(key_pos + 1));
+    command->key = query.substr(0, key_pos);
+    query = trim(query.substr(key_pos + 1, query.length() - (key_pos + 1)));
 
     if (query.length() == 0){
         if (command->opcode == Opcodes::SET){
@@ -198,11 +194,7 @@ bool parse_and_validate_query(std::string query, Command *command){
         return true;
     }
 
-    auto value_pos = query.find_first_of(" ");
-
-    std::string value = query.substr(0, value_pos);
-
-    command->value = value;
+    command->value = query;
 
     return true;
 }
@@ -220,7 +212,7 @@ std::string_view trim(std::string_view str){
             break;
         }
 
-        str = str.substr(1);
+        str = str.substr(1, str.length() - 1);
     }
 
     while (str.length() > 0){
@@ -248,8 +240,8 @@ void worker_handler(){
             tasks.erase(--tasks.end());
             
             mtx.unlock();
+
             std::cout << "Thread " << std::this_thread::get_id() << " executing the command: ";
-            std::cout << static_cast<int>(task.opcode) << " " << task.key << " " << task.value << "\n";
 
             std::string result {};
 
@@ -293,7 +285,7 @@ std::string kv_set(std::string key, std::string value){
         return "Success";
     }
     else{
-        "Failed";
+        return "Failed";
     }
 }
 
