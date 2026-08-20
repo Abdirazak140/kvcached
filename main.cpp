@@ -26,7 +26,7 @@ struct Command{
     int socket;
 };
 
-const std::unordered_map<std::string, Opcodes> opcode_mapper {
+const std::unordered_map<std::string_view, Opcodes> opcode_mapper {
     {"SET", Opcodes::SET},
     {"GET", Opcodes::GET},
     {"DELETE", Opcodes::DELETE},
@@ -41,17 +41,16 @@ std::atomic_bool running = true;
 std::mutex mtx;
 
 // Preprocessing forward declerations
-std::string listen();
-bool parse_and_validate_query(std::string query, Command *command);
+bool parse_and_validate_query(std::string_view query, Command *command);
 std::string_view trim(std::string_view str);
 addrinfo *initialize_address_info(int ai_family=AF_INET);
 
 // Worker operations forward declerations
 void worker_handler();
 
-std::string kv_set(std::string key, std::string value);
-std::string kv_get(std::string key);
-std::string kv_delete(std::string key);
+std::string_view kv_set(Command *command);
+std::string_view kv_get(Command *command);
+std::string_view kv_delete(Command *command);
 
 
 void signal_handler(int){
@@ -154,11 +153,11 @@ addrinfo *initialize_address_info(int ai_family){
 }
 
 
-bool parse_and_validate_query(std::string query, Command *command){
+bool parse_and_validate_query(std::string_view query, Command *command){
     query = trim(query);
 
     auto opcode_pos = query.find_first_of(" ");
-    std::string opcode = query.substr(0, opcode_pos);
+    std::string_view opcode = query.substr(0, opcode_pos);
     
     auto it = opcode_mapper.find(opcode);
 
@@ -178,7 +177,7 @@ bool parse_and_validate_query(std::string query, Command *command){
 
     auto key_pos = query.find_first_of(" ");
 
-    if (key_pos == std::string::npos){
+    if (key_pos == std::string_view::npos){
         command->key = query.substr(0, query.length() - 1);
         return true;
     }
@@ -236,7 +235,7 @@ void worker_handler(){
 
         mtx.lock();
         if (!tasks.empty()){
-            const Command task = tasks.back();
+            Command task = tasks.back();
             tasks.erase(--tasks.end());
             
             mtx.unlock();
@@ -248,15 +247,15 @@ void worker_handler(){
             switch (task.opcode)
             {
                 case Opcodes::SET:
-                    result = kv_set(task.key, task.value);
+                    result = kv_set(&task);
                     break;
                 
                 case Opcodes::GET:
-                    result = kv_get(task.key);
+                    result = kv_get(&task);
                     break;
 
                 case Opcodes::DELETE:
-                    result = kv_delete(task.key);
+                    result = kv_delete(&task);
                     break;
             }
 
@@ -278,8 +277,8 @@ void worker_handler(){
 }
 
 
-std::string kv_set(std::string key, std::string value){
-    auto [it, inserted] = kv_store.insert_or_assign(key, value);
+std::string_view kv_set(Command *command){
+    auto [it, inserted] = kv_store.insert_or_assign(std::move(command->key), std::move(command->value));
     
     if (inserted){
         return "Success";
@@ -289,8 +288,8 @@ std::string kv_set(std::string key, std::string value){
     }
 }
 
-std::string kv_get(std::string key){
-    auto it = kv_store.find(key);
+std::string_view kv_get(Command *command){
+    auto it = kv_store.find(std::move(command->key));
 
     if (it != kv_store.end()){
         std::cout << "Retrieved value: " << it->second << "\n";
@@ -301,8 +300,8 @@ std::string kv_get(std::string key){
     }
 }
 
-std::string kv_delete(std::string key){
-    auto it = kv_store.find(key);
+std::string_view kv_delete(Command *command){
+    auto it = kv_store.find(std::move(command->key));
 
     if (it != kv_store.end()){
         kv_store.erase(it);
