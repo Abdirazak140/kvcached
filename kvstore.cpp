@@ -2,11 +2,6 @@
 #include <string>
 #include <iostream>
 
-struct Node{
-    std::string value {};
-    void *next {};
-};
-
 enum class Opcodes{
     SET,
     GET,
@@ -22,42 +17,56 @@ struct Command{
 
 class KVStore{
     private:
-        int max_capacity;
-        std::unordered_map<std::string, Node> store {};
+        struct Node{
+            std::string value {};
+            Node *next {};
+            Node *prev {};
+        };
 
-        
+        const int capacity { 1 };
+        std::unordered_map<std::string, Node> store {};
+        Node *head;
+        Node *tail;
+
     public:
-        KVStore(int max_capacity){
-            max_capacity = max_capacity;
-        }
+        KVStore(int max_capacity) : capacity {max_capacity} {}
 
         int set(std::string key, std::string value){
             auto it = store.find(key);
             
             if (it != store.end()){
+                Node *temp = &(it->second);
+                it->second.prev->next = it->second.next;
+                temp->prev = nullptr;
+                temp->next = head;
+                head = temp;
+
                 it->second.value = std::move(value);
-                return 0;
             }
             else{
                 Node node;
                 node.value = std::move(value);
+                node.next = head;
+                head = &node;
                 
-                auto [it, inserted] = store.insert_or_assign(std::move(key) , std::move(node));
-                            
-                if (inserted){
-                    return 0;
-                }
-                else{
-                    return 1;
-                }
+                store[key] = node;               
             }
+
+            return 0;
         }
 
-        int get(std::string key, std::string_view value){
+        int get(std::string key, std::string *value){
             auto it = store.find(key);
             
             if (it != store.end()){
-                value = it->second.value;
+                Node *temp = &(it->second);
+                it->second.prev->next = it->second.next;
+                temp->prev = nullptr;
+                temp->next = head;
+                head = temp;
+
+                value = &(it->second.value);
+
                 return 0;
             }
             else{
@@ -69,12 +78,14 @@ class KVStore{
             auto it = store.find(key);
 
             if (it != store.end()){
+                it->second.prev->next = it->second.next;
+
                 store.erase(it);
+ 
                 return 0;
             }
             else{
                 return 1;
             }
         }
-
 };
