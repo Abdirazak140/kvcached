@@ -1,19 +1,8 @@
 #include <unordered_map>
 #include <string>
 #include <iostream>
+#include <instruction.h>
 
-enum class Opcodes{
-    SET,
-    GET,
-    DELETE
-};
-
-struct Command{
-    Opcodes opcode;
-    std::string key;
-    std::string value;
-    int socket;
-};
 
 class KVStore{
     private:
@@ -88,4 +77,6 @@ class KVStore{
                 return 1;
             }
         }
+        
 };
+
